@@ -87,7 +87,7 @@ ________________________________________________________________________________
 
 '''
 
-from smbus2 import SMBus
+from smbus2 import SMBus, i2c_msg
 import sys, time
 
 DEFAULT_I2C_BUS = 1
@@ -235,7 +235,18 @@ class ADS1115(i2c_device):
 The ADS1113 and ADS1114 parts are very similar, and
 support subsets of the function of the ADS1115:
   ADS1113 has two inputs, no comparator.
-  ADS1114 has two inputs.'''
+  ADS1114 has two inputs.
+
+There is no explicit indication when an input voltage exceeds
+the range permitted by the programmable amplifier.  For example,
+if no range is selected using the <pga> argument to configure(),
+the default range of 2.048 volts (pga=2) is used.  If an input voltage
+of 3 volts is measured, its value will be indicated as 
+2.048 volts (raw value = 0x7fff).  In this example, 
+configure(pga=PGA_4V) could be used to set a pga value of 1
+(4.096 volts full scale) and a correct reading of 3.0 will be obtained
+for the input voltage.
+'''
 
     # Symbolic names for the four device registers:
     R_value      = 0     # Last conversion value.
@@ -243,6 +254,31 @@ support subsets of the function of the ADS1115:
     R_low        = 2     # Comparator low threshold
     R_high       = 3     # Comparator high threshold.
 
+    # Names for some configuration values:
+    MUX_A0       = 0b100
+    MUX_A1       = 0b101
+    MUX_A2       = 0b110
+    MUX_A3       = 0b111
+    MUX_A0_A1    = 0b000
+    MUX_A0_A3    = 0b001
+    MUX_A1_A3    = 0b010
+    MUX_A2_A3    = 0b011
+    PGA_6V       = 0b000    #  6.144 volts full scale.
+    PGA_4V       = 0b001    #  4.096 volts full scale.
+    PGA_2V       = 0b010    #  2.948 volts full scale.
+    PGA_1V       = 0b011    #  1.024 volts full scale.
+    PGA_F5V      = 0b100    #  0.512 volts full scale.
+    PGA_F25V     = 0b101    #  0.256 volts full scale.
+    # PGA values 0b110 and 0b111 also denote 0.256 volts full scale.
+    RATE_8       = 0b000    #    8 samples per second.
+    RATE_16      = 0b000    #   16 samples per second.
+    RATE_32      = 0b000    #   32 samples per second.
+    RATE_64      = 0b000    #   64 samples per second.
+    RATE_128     = 0b000    #  128 samples per second.
+    RATE_250     = 0b000    #  250 samples per second.
+    RATE_475     = 0b000    #  475 samples per second.
+    RATE_860     = 0b000    #  860 samples per second.
+    
     # lsb voltage values for pga values (0, 1, 2, 3, 4, 5, 6, 7)
     pga_lsb = (187.5E-6, 125E-6, 62.5E-6, 31.25E-6, 15.625E-6, 7.8125E-6, 7.8125E-6, 7.8125E-6)
 
@@ -253,9 +289,7 @@ support subsets of the function of the ADS1115:
     def __init__(self, address = 0x48, bus = None):
         ''' Default address is for ADS1115 with address pin grounded.
 Other valid addresses are 0x41 through 0x43.
-
-The optional arguments os and following specify the desired device configuration
-(see the configure method for details).'''        
+'''        
         
         i2c_device.__init__(self, address = address, bus = bus)
         self.delay_trigger = False
@@ -386,7 +420,7 @@ and be more understandable than an equivalent integer value.'''
         if comp_polarity != None:
             w_comp_polarity = int(comp_polarity)
         if comp_latch != None:
-            comp_latch = int(comp_latch)
+            w_comp_latch = int(comp_latch)
         if comp_que != None:
             w_comp_que = int(comp_que)
 
@@ -411,7 +445,7 @@ and be more understandable than an equivalent integer value.'''
 
         # If configuration change means time must elapse until valid configuration
         # data is available, set a trigger to delay for an appropriate time.
-        if (w_mux != self.mux) or (w.pga != self.pga) or (w.rate != self.rate) or (w.os == 1) or (w.mode == 0):
+        if (w_mux != self.mux) or (w_pga != self.pga) or (w_rate != self.rate) or (w_os == 1) or (w_mode == 0):
             self.delay_trigger = True
             self.delay_trigger_time = time.time()
 
@@ -484,3 +518,73 @@ This is called internally by the read method after a configuration change
             time.sleep(delay)
         self.delay_trigger = False
         return
+
+######################################################################
+        
+class MCP4725(i2c_device):
+    '''Microchip MCP4725 digital-to-analog converter.
+    '''
+
+    def __init__(self, address = 0x62, bus = None):
+        '''The bus address of this device is 0x60 plus
+three address bits.  The low-order bit (A0) depends on the
+value of the address input pin, while address bits A1 and A2
+are set by the manufacturer.  Therefore, when A0 is zero (ground),
+the actual address may be 0x60, 0x62, 0x64, or 0x66.
+When A0 is one, the actual accress may be  0x61, 0x63, 0x65, or 0x67.
+
+The device used during code development had A1 programmed by
+the manufacturer to be 1, which is why the default <address>
+value is set to 0x62.
+'''
+        i2c_device.__init__(self, address = address, bus = bus)
+        self.m_read = i2c_msg.read(self.address, 3)
+        self.power = 0
+
+    def read(self):
+        '''Read the current configuration and value data from the device.
+Returns an integer value with 24 bits of data:  CCDDDD'''
+        self.device.i2c_rdwr(self.m_read)
+        return (ord(self.m_read.buf[0]) << 16) | (ord(self.m_read.buf[1]) << 8) | ord(self.m_read.buf[2])
+
+    
+    def write(self, data, power = None, EEPROM = None):
+        '''Write <data> to the device to set the desired
+output voltage:  0 <= <data> <= 4095.
+
+<power> is optional, and defaults to normal operation.
+    0 = normal operation (output is driven to the value
+        specified by <data>.
+    1 = output off;    1 Kohm to ground.
+    2 - output off;  100 Kohm to ground.
+    3 - output off;  500 Kohm to ground.
+
+If EEPROM is True, data is also saved to flash memory.
+
+If EEPROM is not specified, a "fast write" (only two blytes)
+is performed to set current power and data values.
+
+If EEPROM is specified as False, a three-byte
+write is performed that does not modify EEPROM data.
+'''
+        if power != None:
+            if (not isinstance(power, int)) or power < 0 or power > 3:
+                raise i2c_error('Invalid power argument value.')
+        else:
+            power = 0     # Default value is normal operation.
+        data &= 0xfff     # Only 12 data bits can be used.
+
+        if EEPROM == None:
+            # Perform a fast write (only two bytes instead of three.)
+            cmd = (power << 4) | (data >> 8)
+            self.wbyte(cmd, data & 0xff)
+        else:    
+            cmd = 0x40        # Normal write.
+            if EEPROM:
+                cmd = 0x60
+            cmd |= (power << 1)
+
+            data = data << 4
+            self.wword(cmd, data)
+        return
+    
