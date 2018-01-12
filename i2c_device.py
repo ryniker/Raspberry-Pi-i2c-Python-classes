@@ -146,8 +146,13 @@ with this device) is reset.'''
     def wbyte_only(self, value):
         # Write a single byte to device, without any register address.
         self.device.write_byte(self.address, value)
+
+    def rbyte_only(self):
+        # Read a single byte from device, without any register address.
+        return self.device.read_byte(self.address)
     
     def wbyte(self, reg, value):
+        # Write a single byte <value> to register <reg>.
         if self.DEBUG >= 32:
             sys.stdout.write('  write  x{:02X} to chip x{:02X} register {}\n'.format(value, self.address, reg))
             sys.flush()
@@ -155,6 +160,7 @@ with this device) is reset.'''
         return
 
     def rbyte(self, reg):
+        # Read one byte from register <reg>.
         return self.device.read_byte_data(self.address, reg)
 
     def wword(self, reg, value):
