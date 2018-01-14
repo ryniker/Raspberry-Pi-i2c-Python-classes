@@ -594,3 +594,46 @@ write is performed that does not modify EEPROM data.
             self.wword(cmd, data)
         return
     
+
+######################################################################
+        
+class PCF8574(i2c_device):
+    '''Texas Instruments PCF8574 I/O expander.
+
+The PCF8574 device documentation specifies a maximum 100 kHz clock signal,
+though I have seen it operate at nearly 400 kHz.
+    '''
+
+    def __init__(self, address = 0x38, bus = None):
+        '''The TI data sheet for this part says it uses bus address 0x20,
+but the devices I have used respond to bus address 0x38 (with
+all three address pins 0.)
+
+TI describes device addresses that include a low-order bit which is
+the R/-W bit of the i2c protocol.  Thus a 7-bit device address of 0x20
+is described as 0x40 (for write) or 0x41 (for read).
+This does not explain the 0x38 (7-bit) address of the test devices.
+
+This is almost the simplest device possible.
+
+If any of the eight port bits will be used for input, they
+should first be written as 1's (this is the power-on state
+of the port.)  This allows the internal pull-up resistors to
+supply a 1 value, unless an external device pulls the pin low.
+
+If a port pin has been written as 0, the output latch drives the pin
+to 0 and this will be the value returned by read, regardless of
+the external connection.
+'''
+        i2c_device.__init__(self, address = address, bus = bus)
+
+        
+    def write(self, value):
+        self.wbyte_only(value)
+
+    def read(self):
+        return self.rbyte_only()
+
+
+######################################################################
+        
